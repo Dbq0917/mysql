@@ -35,6 +35,7 @@ type mysqlConn struct {
 	capabilities     capabilityFlag
 	extCapabilities  extendedCapabilityFlag
 	status           statusFlag
+	connectionID     uint32 // server-assigned connection id (thread id) from the handshake
 	sequence         uint8
 	compressSequence uint8
 	parseTime        bool
@@ -790,6 +791,36 @@ func (mc *mysqlConn) ResetSession(ctx context.Context) error {
 		return driver.ErrBadConn
 	}
 
+	// A connection that is returned to the pool while a transaction is still
+	// open (for example a leaked sql.Tx or a driver-level transaction the
+	// caller abandoned) must not be handed to the next request: otherwise the
+	// new request inherits the old transaction's read snapshot and isolation
+	// level. Roll the residual transaction back before reuse.
+	//
+	// The check only inspects the locally tracked server status, so a clean
+	// connection does not pay for any extra round trip.
+	if mc.status&statusInTrans != 0 {
+		if err := mc.exec("ROLLBACK"); err != nil {
+			mc.log("rolling back leftover transaction on reused connection failed, closing connection: connection_id=",
+				mc.connectionID, " error: ", err)
+			mc.notifyReuse(ctx, ReuseEvent{
+				ConnectionID: mc.connectionID,
+				Reason:       ReuseRollbackFailed,
+				Err:          err,
+			})
+			mc.close()
+			return driver.ErrBadConn
+		}
+		// The ROLLBACK OK packet already clears statusInTrans in mc.status;
+		// clear it defensively as well in case the server omits status flags.
+		mc.status &^= statusInTrans | statusInTransReadonly
+		mc.log("rolled back leftover transaction before reusing connection: connection_id=", mc.connectionID)
+		mc.notifyReuse(ctx, ReuseEvent{
+			ConnectionID: mc.connectionID,
+			Reason:       ReuseRolledBackTransaction,
+		})
+	}
+
 	// Perform a stale connection check. We only perform this check for
 	// the first query on a connection that has been checked out of the
 	// connection pool: a fresh connection from the pool is more likely
@@ -817,7 +848,19 @@ func (mc *mysqlConn) ResetSession(ctx context.Context) error {
 		}
 	}
 
+	mc.notifyReuse(ctx, ReuseEvent{
+		ConnectionID: mc.connectionID,
+		Reason:       ReuseClean,
+	})
 	return nil
+}
+
+// notifyReuse dispatches a reuse event to the optional Config.OnReuse hook.
+// It is kept separate so the hot (clean reuse) path stays a single nil check.
+func (mc *mysqlConn) notifyReuse(ctx context.Context, event ReuseEvent) {
+	if mc.cfg != nil && mc.cfg.OnReuse != nil {
+		mc.cfg.OnReuse(ctx, event)
+	}
 }
 
 // IsValid implements driver.Validator interface

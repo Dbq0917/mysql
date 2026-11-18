@@ -58,6 +58,10 @@ type Config struct {
 	Logger               Logger            // Logger
 	// DialFunc specifies the dial function for creating connections
 	DialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
+	// OnReuse, when set, is invoked from ResetSession every time a pooled
+	// connection is checked out, reporting whether the connection was clean
+	// or had session state (such as a leftover transaction) cleaned up.
+	OnReuse OnReuseFunc
 
 	// boolean fields
 

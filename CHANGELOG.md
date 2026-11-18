@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+* `ResetSession` now rolls back a transaction left open when a connection is
+  returned to the pool, instead of letting the next request reuse the
+  connection inside the old transaction and inherit its snapshot and
+  isolation level. The check only reads the locally tracked server status, so
+  clean reuse adds no round trip; if the rollback cannot be delivered the
+  connection is closed and `database/sql` discards it. The new
+  `Config.OnReuse` hook reports every pool reuse (`clean`,
+  `rolled-back-transaction`, `rollback-failed`) together with the server
+  connection id so incidents can be traced to the exact connection.
+
 * Add the `tinyInt1IsBool` DSN parameter and `TinyInt1IsBool` functional option,
   disabled by default to preserve numeric `TINYINT` behavior. When enabled,
   signed, non-`ZEROFILL` `TINYINT(1)` columns report `BOOLEAN` and scan types

@@ -215,6 +215,10 @@ func (mc *mysqlConn) readHandshakePacket() (data []byte, capabilities capability
 	if len(data) < pos+8+1+2 {
 		return nil, 0, 0, "", ErrMalformPkt
 	}
+	// connection id [4 bytes], located between the server version and the
+	// auth data; read only after the length check above so truncated packets
+	// return ErrMalformPkt instead of panicking.
+	mc.connectionID = binary.LittleEndian.Uint32(data[1+end+1:])
 	authData := data[pos : pos+8]
 
 	// (filler) always 0x00 [1 byte]

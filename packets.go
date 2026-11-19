@@ -797,7 +797,7 @@ func (mc *mysqlConn) readColumns(count int, old []mysqlField) ([]mysqlField, err
 func (rows *textRows) readRow(dest []driver.Value) error {
 	data, err := rows.readRowPacket(false)
 	if err != nil {
-		return err
+		return rows.failRow(err)
 	}
 	for i := range dest {
 		var buf []byte
@@ -806,7 +806,7 @@ func (rows *textRows) readRow(dest []driver.Value) error {
 			n = uint(data[0]) + 1
 			buf, data = data[1:n:n], data[n:]
 		} else if buf, data, err = readColumnBytes(data); err != nil {
-			return err
+			return rows.failRow(err)
 		}
 		if buf == nil {
 			dest[i] = nil
@@ -853,12 +853,12 @@ func (rows *textRows) readRow(dest []driver.Value) error {
 			dest[i] = bytesValue(buf)
 		}
 		if err != nil {
-			return err
+			return rows.failRow(err)
 		}
 	}
 
 	if len(data) != 0 {
-		return ErrMalformPkt
+		return rows.failRow(ErrMalformPkt)
 	}
 	return nil
 }
@@ -1254,11 +1254,11 @@ func (mc *okHandler) discardResults() error {
 func (rows *binaryRows) readRow(dest []driver.Value) error {
 	data, err := rows.readRowPacket(true)
 	if err != nil {
-		return err
+		return rows.failRow(err)
 	}
 	reader, err := newBinaryRowReader(data, len(rows.rs.columns))
 	if err != nil {
-		return err
+		return rows.failRow(err)
 	}
 	for i := range dest {
 		col := &rows.rs.columns[i]
@@ -1273,7 +1273,7 @@ func (rows *binaryRows) readRow(dest []driver.Value) error {
 		if !fixed {
 			raw, err = reader.readVariableColumn(col.fieldType)
 			if err != nil {
-				return err
+				return rows.failRow(err)
 			}
 		}
 		if raw == nil {
@@ -1319,7 +1319,7 @@ func (rows *binaryRows) readRow(dest []driver.Value) error {
 				dest[i], err = formatBinaryColumnDateTimeValue(*col, raw)
 			}
 			if err != nil {
-				return err
+				return rows.failRow(err)
 			}
 		default:
 			// The reader rejects unknown types; the remaining types are bytes.
@@ -1327,7 +1327,7 @@ func (rows *binaryRows) readRow(dest []driver.Value) error {
 		}
 	}
 	if len(reader.data) != 0 {
-		return ErrMalformPkt
+		return rows.failRow(ErrMalformPkt)
 	}
 	return nil
 }

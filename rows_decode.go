@@ -11,6 +11,7 @@ package mysql
 import (
 	"database/sql/driver"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 )
@@ -72,6 +73,28 @@ func (rows *mysqlRows) readRowPacket(binary bool) ([]byte, error) {
 		return nil, mc.handleErrorPacket(data)
 	}
 	return data, nil
+}
+
+// failRow closes the connection when a row packet could not be decoded.
+//
+// Once decoding a row fails, the client no longer knows where the current
+// result set ends on the wire: reusing the connection would pair the next
+// statement with the leftover bytes of the broken stream and surface
+// "commands out of sync" errors for every subsequent statement. Closing the
+// connection makes database/sql discard it and open a fresh one.
+//
+// io.EOF marks the clean end of a result set and server-side errors already
+// leave the stream in a defined state, so neither of those invalidate the
+// connection.
+func (rows *mysqlRows) failRow(err error) error {
+	if err == nil || errors.Is(err, io.EOF) {
+		return err
+	}
+	if mc := rows.mc; mc != nil {
+		mc.close()
+		rows.mc = nil
+	}
+	return err
 }
 
 // readColumnBytes bounds-checks both the length prefix and the payload before

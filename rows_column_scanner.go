@@ -38,7 +38,7 @@ func (rows *mysqlRows) prepareRawColumns() {
 func (rows *textRows) NextRow() error {
 	data, err := rows.readRowPacket(false)
 	if err != nil {
-		return err
+		return rows.failRow(err)
 	}
 	rows.prepareRawColumns()
 	for i := range rows.rawCols {
@@ -51,12 +51,12 @@ func (rows *textRows) NextRow() error {
 		rows.rawCols[i], data, err = readColumnBytes(data)
 		if err != nil {
 			rows.rawCols = rows.rawCols[:0]
-			return err
+			return rows.failRow(err)
 		}
 	}
 	if len(data) != 0 {
 		rows.rawCols = rows.rawCols[:0]
-		return ErrMalformPkt
+		return rows.failRow(ErrMalformPkt)
 	}
 	return nil
 }
@@ -64,11 +64,11 @@ func (rows *textRows) NextRow() error {
 func (rows *binaryRows) NextRow() error {
 	data, err := rows.readRowPacket(true)
 	if err != nil {
-		return err
+		return rows.failRow(err)
 	}
 	reader, err := newBinaryRowReader(data, len(rows.rs.columns))
 	if err != nil {
-		return err
+		return rows.failRow(err)
 	}
 	rows.prepareRawColumns()
 	for i := range rows.rs.columns {
@@ -85,14 +85,14 @@ func (rows *binaryRows) NextRow() error {
 			raw, err = reader.readVariableColumn(fieldType)
 			if err != nil {
 				rows.rawCols = rows.rawCols[:0]
-				return err
+				return rows.failRow(err)
 			}
 		}
 		rows.rawCols[i] = raw
 	}
 	if len(reader.data) != 0 {
 		rows.rawCols = rows.rawCols[:0]
-		return ErrMalformPkt
+		return rows.failRow(ErrMalformPkt)
 	}
 	return nil
 }

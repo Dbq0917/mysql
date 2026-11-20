@@ -483,6 +483,48 @@ func TestInvalidDateTime(t *testing.T) {
 	}
 }
 
+func TestParseDateTimeAllocations(t *testing.T) {
+	// Time parsing runs on every scanned row, so it must not allocate.
+	// The location is resolved once while parsing the DSN and passed in here.
+	loc := time.FixedZone("test", 8*60*60)
+	cases := [][]byte{
+		[]byte("2020-05-13"),
+		[]byte("2020-05-13 21:30:45"),
+		[]byte("2020-05-25 23:22:01.159491"),
+		[]byte(sDate0),
+		[]byte(sDateTime0),
+	}
+	for _, raw := range cases {
+		allocs := testing.AllocsPerRun(100, func() {
+			if _, err := parseDateTime(raw, loc); err != nil {
+				t.Fatal(err)
+			}
+		})
+		if allocs != 0 {
+			t.Fatalf("parseDateTime(%q): %v allocations, want 0", raw, allocs)
+		}
+	}
+}
+
+func TestParseBinaryDateTimeAllocations(t *testing.T) {
+	loc := time.FixedZone("test", 8*60*60)
+	cases := [][]byte{
+		{1978 & 0xff, 1978 >> 8, 12, 22},
+		{1978 & 0xff, 1978 >> 8, 12, 22, 21, 27, 37},
+		{1978 & 0xff, 1978 >> 8, 12, 22, 21, 27, 37, 0, 0, 0, 0},
+	}
+	for _, raw := range cases {
+		allocs := testing.AllocsPerRun(100, func() {
+			if _, err := parseBinaryDateTime(uint64(len(raw)), raw, loc); err != nil {
+				t.Fatal(err)
+			}
+		})
+		if allocs != 0 {
+			t.Fatalf("parseBinaryDateTime(len=%d): %v allocations, want 0", len(raw), allocs)
+		}
+	}
+}
+
 func TestParseDateTimeFail(t *testing.T) {
 	cases := []struct {
 		name    string

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* Make the `loc` DSN parameter's default behavior explicit: omitting `loc` or
+  passing an empty `loc=` resolves to `UTC` deterministically instead of
+  depending on `time.LoadLocation("")`. The location is resolved once while
+  parsing the DSN and is shared by time parsing and formatting, so reads and
+  writes stay consistent across connections.
+
 * Add the `tinyInt1IsBool` DSN parameter and `TinyInt1IsBool` functional option,
   disabled by default to preserve numeric `TINYINT` behavior. When enabled,
   signed, non-`ZEROFILL` `TINYINT(1)` columns report `BOOLEAN` and scan types

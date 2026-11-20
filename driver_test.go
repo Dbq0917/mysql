@@ -1727,6 +1727,76 @@ func TestTimezoneConversion(t *testing.T) {
 	}
 }
 
+// TestTimeFieldReadWriteConsistency writes a time field and reads it back with
+// two DSNs: one without an explicit loc (deterministic UTC default) and one
+// with an explicit loc. Read and write must use the same location, so a round
+// trip on either DSN returns the same instant, and the parsed values must
+// represent the same point in time across the two DSNs.
+func TestTimeFieldReadWriteConsistency(t *testing.T) {
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A fixed instant independent of the host's local zone.
+	instant := time.Date(2024, 1, 2, 3, 4, 5, 123456000, shanghai)
+
+	dsns := map[string]string{
+		"default UTC loc": dsn + "&parseTime=true",
+		"explicit loc":    dsn + "&parseTime=true&loc=" + url.QueryEscape("Asia/Shanghai"),
+	}
+
+	results := make(map[string]map[string]time.Time, len(dsns))
+	for name, testDSN := range dsns {
+		runTests(t, testDSN, func(dbt *DBTest) {
+			dbt.mustExec("CREATE TABLE test (id INT PRIMARY KEY, dt DATETIME(6), ts TIMESTAMP(6) NULL)")
+			dbt.mustExec("INSERT INTO test (id, dt, ts) VALUES (1, ?, ?)", instant, instant)
+
+			rows := dbt.mustQuery("SELECT dt, ts FROM test WHERE id = 1")
+			defer rows.Close()
+			if !rows.Next() {
+				dbt.Fatal("did not get any rows out")
+			}
+
+			var gotDT, gotTS time.Time
+			if err := rows.Scan(&gotDT, &gotTS); err != nil {
+				dbt.Fatal(err)
+			}
+
+			// Read/write must use the same location on a given connection:
+			// the round trip must preserve the instant.
+			if !gotDT.Equal(instant) {
+				dbt.Errorf("%s: DATETIME round trip mismatch: want %v, got %v", name, instant, gotDT)
+			}
+			if !gotTS.Equal(instant) {
+				dbt.Errorf("%s: TIMESTAMP round trip mismatch: want %v, got %v", name, instant, gotTS)
+			}
+
+			results[name] = map[string]time.Time{"dt": gotDT, "ts": gotTS}
+		})
+	}
+
+	// Both DSNs must decode the stored column into the same instant, even
+	// though the attached locations (and thus the displayed wall clocks)
+	// differ.
+	defaultResult, explicitResult := results["default UTC loc"], results["explicit loc"]
+	for _, field := range []string{"dt", "ts"} {
+		if !defaultResult[field].Equal(explicitResult[field]) {
+			t.Errorf("%s decoded differently across DSNs: %v vs %v",
+				field, defaultResult[field], explicitResult[field])
+		}
+	}
+
+	// The default DSN must keep its deterministic UTC behavior even when the
+	// host runs in a non-UTC zone.
+	if loc := defaultResult["dt"].Location(); loc != time.UTC {
+		t.Errorf("default DSN location = %v, want UTC", loc)
+	}
+	if loc := explicitResult["dt"].Location(); loc.String() != "Asia/Shanghai" {
+		t.Errorf("explicit DSN location = %v, want Asia/Shanghai", loc)
+	}
+}
+
 // Special cases
 
 func TestRowsClose(t *testing.T) {

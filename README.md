@@ -329,6 +329,8 @@ Default:        UTC
 
 Sets the location for time.Time values (when using `parseTime=true`). *"Local"* sets the system's location. See [time.LoadLocation](https://golang.org/pkg/time/#LoadLocation) for details.
 
+The location is resolved once while the DSN is parsed and is then used for both writing `time.Time` parameters and parsing `DATE`/`DATETIME`/`TIMESTAMP` values, so a connection always reads back what it wrote. Omitting `loc` (or passing an empty `loc=`) deterministically selects `UTC` regardless of the host's local zone; set `loc=Local` or an explicit zone name such as `loc=Asia%2FShanghai` to use another zone. Every service accessing the same data must use the same `loc` value, otherwise the same stored value is interpreted with different wall-clock offsets (for example an eight-hour shift between `UTC` and `Asia/Shanghai`).
+
 Note that this sets the location for time.Time values but does not change MySQL's [time_zone setting](https://dev.mysql.com/doc/refman/5.5/en/time-zone-support.html). For that see the [time_zone system variable](#system-variables), which can also be set as a DSN parameter.
 
 Please keep in mind, that param values must be [url.QueryEscape](https://golang.org/pkg/net/url/#QueryEscape)'ed. Alternatively you can manually replace the `/` with `%2F`. For example `US/Pacific` would be `loc=US%2FPacific`.

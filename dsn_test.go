@@ -309,6 +309,51 @@ func TestDSNReformat(t *testing.T) {
 	}
 }
 
+func TestDSNLocDefault(t *testing.T) {
+	// Omitting loc and passing an empty loc must resolve to the same
+	// deterministic location (UTC) so services without an explicit loc
+	// behave identically regardless of the host's local zone.
+	dsns := []string{
+		"user:password@/dbname?parseTime=true",
+		"user:password@/dbname?parseTime=true&loc=",
+		"user:password@/dbname?parseTime=true&loc=UTC",
+	}
+	for _, dsn := range dsns {
+		cfg, err := ParseDSN(dsn)
+		if err != nil {
+			t.Fatalf("%q: %v", dsn, err)
+		}
+		if cfg.Loc != time.UTC {
+			t.Errorf("%q: Loc = %v, want UTC", dsn, cfg.Loc)
+		}
+	}
+}
+
+func TestDSNLocExplicit(t *testing.T) {
+	cases := []struct {
+		dsn  string
+		want string
+	}{
+		{"user:password@/dbname?loc=Local", time.Local.String()},
+		{"user:password@/dbname?loc=Asia%2FShanghai", "Asia/Shanghai"},
+	}
+	for _, cc := range cases {
+		cfg, err := ParseDSN(cc.dsn)
+		if err != nil {
+			t.Fatalf("%q: %v", cc.dsn, err)
+		}
+		if cfg.Loc.String() != cc.want {
+			t.Errorf("%q: Loc = %v, want %v", cc.dsn, cfg.Loc, cc.want)
+		}
+	}
+}
+
+func TestDSNLocInvalid(t *testing.T) {
+	if _, err := ParseDSN("user:password@/dbname?loc=Bogus/Zone"); err == nil {
+		t.Fatal("expected error for unknown loc, got nil")
+	}
+}
+
 func TestDSNServerPubKey(t *testing.T) {
 	baseDSN := "User:password@tcp(localhost:5555)/dbname?serverPubKey="
 

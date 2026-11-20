@@ -47,7 +47,7 @@ type Config struct {
 	Params               map[string]string // Connection parameters. Use Apply(AddParam(...)) to preserve insertion order.
 	ConnectionAttributes string            // Connection Attributes, comma-delimited string of user-defined "key:value" pairs
 	Collation            string            // Connection collation. When set, this will be set in SET NAMES <charset> COLLATE <collation> query
-	Loc                  *time.Location    // Location for time.Time values
+	Loc                  *time.Location    // Location for time.Time values; NewConfig and a missing/empty loc DSN parameter default to time.UTC
 	MaxAllowedPacket     int               // Max packet size allowed
 	ServerPubKey         string            // Server public key name
 	TLSConfig            string            // TLS configuration name
@@ -679,6 +679,16 @@ func parseDSNParams(cfg *Config, params string) (err error) {
 		case "loc":
 			if value, err = url.QueryUnescape(value); err != nil {
 				return
+			}
+			// An empty value is equivalent to omitting loc: keep the
+			// deterministic UTC default from NewConfig instead of relying on
+			// time.LoadLocation("") happening to return UTC. The location is
+			// resolved once here while parsing the DSN, so every connection
+			// built from this Config parses and formats time with the same
+			// location.
+			if value == "" {
+				cfg.Loc = time.UTC
+				break
 			}
 			cfg.Loc, err = time.LoadLocation(value)
 			if err != nil {
